@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import simpledialog, messagebox
 from PIL import Image, ImageTk
 import socket
 import struct
@@ -7,69 +7,106 @@ import pickle
 import cv2
 import threading
 import time
+import pyaudio
+import numpy as np
+from cryptography.fernet import Fernet
+import base64
+import hashlib
 
-# --- CONFIGURATION ---
-SERVER_IP = '127.0.0.1' # Change to your Server's Public IP
-PORT = 5555
+PASSWORD = "secure123"  # Must match server password
+
+def get_cipher_key(password):
+    hash_obj = hashlib.sha256(password.encode())
+    key = base64.urlsafe_b64encode(hash_obj.digest())
+    return key
 
 class VideoChatApp:
-    def __init__(self, window):
-        self.window = window
-        self.window.title("TCP Video & Text Chat")
-        self.window.geometry("800x600")
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Video Chat with Audio & Encryption")
+        self.root.geometry("800x650")
 
-        # --- UI LAYOUT ---
-        # Video Container
-        self.video_frame = tk.Frame(window, bg="black")
-        self.video_frame.pack(side="top", fill="both", expand=True)
-
-        self.remote_video = tk.Label(self.video_frame, bg="black", text="Waiting for Remote...")
-        self.remote_video.pack(side="left", fill="both", expand=True, padx=5)
-
-        self.local_video = tk.Label(self.video_frame, bg="black", text="Local Preview")
-        self.local_video.pack(side="right", fill="both", expand=True, padx=5)
-
-        # Chat Container
-        self.chat_display = scrolledtext.ScrolledText(window, height=8, state='disabled')
-        self.chat_display.pack(fill="x", padx=10, pady=5)
-
-        self.input_frame = tk.Frame(window)
-        self.input_frame.pack(fill="x", padx=10, pady=5)
-
-        self.entry_field = tk.Entry(self.input_frame)
-        self.entry_field.pack(side="left", fill="x", expand=True)
-        self.entry_field.bind("<Return>", self.send_text_msg)
-
-        self.send_btn = tk.Button(self.input_frame, text="Send", command=self.send_text_msg)
-        self.send_btn.pack(side="right", padx=5)
-
-        # --- NETWORK SETUP ---
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            self.client_socket.connect((SERVER_IP, PORT))
-        except Exception as e:
-            self.log_message(f"SYSTEM: Connection failed - {e}")
+        # Get server IP
+        self.server_ip = simpledialog.askstring("Connect", "Enter Server IP (e.g., 192.168.1.100):")
+        if not self.server_ip:
+            self.root.destroy()
             return
 
-        # Start Threads
+        # Connect to server
+        try:
+            self.socket = socket.socket()
+            self.socket.connect((self.server_ip, 5555))
+            print(f"Connected to {self.server_ip}")
+        except:
+            messagebox.showerror("Error", "Could not connect to server")
+            self.root.destroy()
+            return
+
+        # Setup encryption
+        self.cipher = Fernet(get_cipher_key(PASSWORD))
+
+        # UI
+        self.video_frame = tk.Frame(root, bg="black")
+        self.video_frame.pack(side="top", fill="both", expand=True)
+
+        self.remote_label = tk.Label(self.video_frame, bg="black", text="Remote Video")
+        self.remote_label.pack(side="left", fill="both", expand=True)
+
+        self.local_label = tk.Label(self.video_frame, bg="black", text="Your Video")
+        self.local_label.pack(side="right", fill="both", expand=True)
+
+        # Chat
+        chat_frame = tk.Frame(root)
+        chat_frame.pack(fill="x", padx=10, pady=5)
+
+        self.chat_box = tk.Text(chat_frame, height=4, state="disabled")
+        self.chat_box.pack(fill="x")
+
+        self.msg_entry = tk.Entry(chat_frame)
+        self.msg_entry.pack(fill="x", pady=5)
+        self.msg_entry.bind("<Return>", self.send_message)
+
+        tk.Button(chat_frame, text="Send", command=self.send_message).pack()
+
+        # Audio status
+        status_frame = tk.Frame(root)
+        status_frame.pack(fill="x", padx=10, pady=5)
+        tk.Label(status_frame, text="🔒 Encrypted | 🔊 Audio Enabled", fg="green").pack()
+
         self.running = True
-        threading.Thread(target=self.receive_loop, daemon=True).start()
-        threading.Thread(target=self.send_video_loop, daemon=True).start()
 
-    def send_text_msg(self, event=None):
-        msg = self.entry_field.get()
-        if msg:
-            data = msg.encode('utf-8')
-            # Protocol: 1 (Text) + Size + Data
-            header = struct.pack("!BL", 1, len(data))
-            try:
-                self.client_socket.sendall(header + data)
-                self.log_message(f"You: {msg}")
-                self.entry_field.delete(0, tk.END)
-            except:
-                self.log_message("SYSTEM: Failed to send.")
+        # Setup audio
+        self.p = pyaudio.PyAudio()
+        self.CHUNK = 1024
+        self.FORMAT = pyaudio.paFloat32
+        self.CHANNELS = 1
+        self.RATE = 44100
 
-    def send_video_loop(self):
+        # Audio stream
+        self.stream = self.p.open(format=self.FORMAT, channels=self.CHANNELS,
+                                   rate=self.RATE, input=True, output=True,
+                                   frames_per_buffer=self.CHUNK)
+
+        threading.Thread(target=self.send_video, daemon=True).start()
+        threading.Thread(target=self.send_audio, daemon=True).start()
+        threading.Thread(target=self.receive_data, daemon=True).start()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def send_message(self, event=None):
+        msg = self.msg_entry.get()
+        if not msg:
+            return
+
+        data = msg.encode()
+        encrypted = self.cipher.encrypt(data)
+        header = struct.pack("!BL", 1, len(encrypted))  # 1 = text
+        self.socket.sendall(header + encrypted)
+
+        self.log_message(f"You: {msg}")
+        self.msg_entry.delete(0, tk.END)
+
+    def send_video(self):
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
@@ -77,70 +114,109 @@ class VideoChatApp:
         while self.running:
             ret, frame = cap.read()
             if ret:
-                # 1. Show Local Preview
-                self.update_ui_image(frame, self.local_video)
+                self.show_image(frame, self.local_label)
 
-                # 2. Compress and Send
-                _, encoded = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
-                data = pickle.dumps(encoded)
-                # Protocol: 0 (Video) + Size + Data
-                header = struct.pack("!BL", 0, len(data))
+                _, img_encoded = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                data = pickle.dumps(img_encoded)
+                encrypted = self.cipher.encrypt(pickle.dumps(data))
+                header = struct.pack("!BL", 0, len(encrypted))  # 0 = video
                 try:
-                    self.client_socket.sendall(header + data)
+                    self.socket.sendall(header + encrypted)
                 except:
                     break
-            time.sleep(0.04) # Cap at ~25 FPS
+
+            time.sleep(0.04)  # 25 FPS
+
         cap.release()
 
-    def receive_loop(self):
-        data = b""
-        header_size = struct.calcsize("!BL")
+    def send_audio(self):
+        while self.running:
+            try:
+                # Record audio
+                audio_data = self.stream.read(self.CHUNK, exception_on_overflow=False)
+                audio_array = np.frombuffer(audio_data, dtype=np.float32)
+
+                # Compress audio (simple downsampling)
+                compressed = audio_array[::2]
+                data = pickle.dumps(compressed)
+                encrypted = self.cipher.encrypt(data)
+                header = struct.pack("!BL", 2, len(encrypted))  # 2 = audio
+
+                try:
+                    self.socket.sendall(header + encrypted)
+                except:
+                    break
+
+                time.sleep(0.02)
+            except:
+                break
+
+    def receive_data(self):
+        buffer = b""
+        header_size = 5
 
         while self.running:
             try:
-                # 1. Get Header
-                while len(data) < header_size:
-                    packet = self.client_socket.recv(8192)
-                    if not packet: return
-                    data += packet
-                
-                flag, msg_size = struct.unpack("!BL", data[:header_size])
-                data = data[header_size:]
+                # Get header
+                while len(buffer) < header_size:
+                    chunk = self.socket.recv(4096)
+                    if not chunk:
+                        return
+                    buffer += chunk
 
-                # 2. Get Full Payload
-                while len(data) < msg_size:
-                    data += self.client_socket.recv(8192)
+                msg_type, size = struct.unpack("!BL", buffer[:header_size])
+                buffer = buffer[header_size:]
 
-                payload = data[:msg_size]
-                data = data[msg_size:]
+                # Get message body
+                while len(buffer) < size:
+                    chunk = self.socket.recv(4096)
+                    if not chunk:
+                        return
+                    buffer += chunk
 
-                # 3. Handle by Flag
-                if flag == 0: # Video
-                    decoded_frame = cv2.imdecode(pickle.loads(payload), cv2.IMREAD_COLOR)
-                    self.update_ui_image(decoded_frame, self.remote_video)
-                elif flag == 1: # Text
-                    text_msg = payload.decode('utf-8')
-                    self.log_message(f"Partner: {text_msg}")
+                payload = buffer[:size]
+                buffer = buffer[size:]
 
-            except Exception as e:
-                self.log_message(f"SYSTEM: Receiver Error - {e}")
+                # Decrypt
+                decrypted = self.cipher.decrypt(payload)
+
+                if msg_type == 0:  # Video
+                    frame_data = pickle.loads(pickle.loads(decrypted))
+                    frame = cv2.imdecode(frame_data, cv2.IMREAD_COLOR)
+                    self.show_image(frame, self.remote_label)
+                elif msg_type == 1:  # Text
+                    text = decrypted.decode()
+                    self.log_message(f"Other: {text}")
+                elif msg_type == 2:  # Audio
+                    audio_array = pickle.loads(decrypted)
+                    audio_bytes = (audio_array * 32767).astype(np.int16).tobytes()
+                    self.stream.write(audio_bytes)
+            except:
                 break
 
-    def update_ui_image(self, cv_img, label):
-        """Thread-safe update of Tkinter labels with OpenCV frames."""
-        rgb_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(rgb_img)
-        img_tk = ImageTk.PhotoImage(image=pil_img)
-        label.config(image=img_tk)
-        label.image = img_tk
+    def show_image(self, cv_frame, label):
+        rgb = cv2.cvtColor(cv_frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(rgb)
+        photo = ImageTk.PhotoImage(image=img)
+        label.config(image=photo)
+        label.image = photo
 
     def log_message(self, msg):
-        self.chat_display.config(state='normal')
-        self.chat_display.insert(tk.END, msg + "\n")
-        self.chat_display.config(state='disabled')
-        self.chat_display.see(tk.END)
+        self.chat_box.config(state="normal")
+        self.chat_box.insert(tk.END, msg + "\n")
+        self.chat_box.config(state="disabled")
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = VideoChatApp(root)
-    root.mainloop()
+    def on_close(self):
+        self.running = False
+        try:
+            self.stream.stop_stream()
+            self.stream.close()
+            self.p.terminate()
+            self.socket.close()
+        except:
+            pass
+        self.root.destroy()
+
+root = tk.Tk()
+app = VideoChatApp(root)
+root.mainloop()

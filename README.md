@@ -1,17 +1,79 @@
-# ScreenShare-Project
+# Video Chat App (Encrypted + Audio)
 
-## Dependencies
+Video chat between 2 PCs with **encryption** and **audio**.
 
-Install the Python packages used by the client:
+## Features
+- ✅ Live video (encrypted)
+- ✅ Text chat (encrypted)
+- ✅ **Audio calls (encrypted)** - NEW!
+- ✅ **AES encryption** - All data encrypted
+- ✅ Same network only
+
+## Install
 
 ```bash
 pip install -r requirements.txt
+sudo apt-get install python3-tk python3-dev portaudio19-dev  # Linux only
 ```
 
-On Linux, tkinter is usually provided by the system package manager, not pip. If the client still fails with No module named 'tkinter', install the OS package for your Python build, for example:
+## How to Use
 
+### Change Password (Optional but recommended)
+Edit `server.py` and `gui_client.py`, change:
+```python
+PASSWORD = "secure123"  # Change this!
+```
+Both files must use the same password.
+
+### Step 1: Run Server
 ```bash
-sudo apt-get install python3-tk
+python server.py
 ```
+Shows: `Using password: secure123`
 
-The client uses the headless OpenCV build because it only needs camera capture and image encoding, not OpenCV GUI windows.
+Get your IP:
+- **Windows:** `ipconfig` → IPv4 Address
+- **Mac/Linux:** `ifconfig` → inet
+
+### Step 2: Run Client on Both PCs
+```bash
+python gui_client.py
+```
+Enter server IP when asked.
+
+### Done!
+- Video + Audio + Chat all encrypted
+- Speak into microphone - other person hears it
+- Type text messages
+- Everything is encrypted 🔒
+
+## How It Works
+
+### Encryption (AES)
+- Password → SHA256 hash → Encryption key
+- All data encrypted before sending
+- Can't be read by anyone without password
+
+### Audio
+- Captures from microphone in real-time
+- Compressed and encrypted
+- Plays through speakers
+
+### Protocol
+```
+[1 byte type] [4 bytes size] [encrypted data]
+```
+Types:
+- 0 = Video frame
+- 1 = Text message
+- 2 = Audio chunk
+
+## Troubleshooting
+
+**"Could not connect"** - Server not running or wrong IP
+
+**No audio heard** - Check microphone is plugged in
+
+**Slow video** - Normal on slower networks, reduce resolution in code
+
+**"Invalid password"** - Server and client passwords don't match

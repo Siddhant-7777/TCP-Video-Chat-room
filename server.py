@@ -1,50 +1,63 @@
 import socket
 import threading
+from cryptography.fernet import Fernet
+import base64
+import hashlib
 
-# Server Configuration
-HOST = '0.0.0.0' 
-PORT = 5555      
+HOST = '0.0.0.0'
+PORT = 5555
+PASSWORD = "secure123"  # Change this to your password
 
-clients = []
+# Generate encryption key from password
+def get_cipher_key(password):
+    hash_obj = hashlib.sha256(password.encode())
+    key = base64.urlsafe_b64encode(hash_obj.digest())
+    return key
 
-def handle_relay(current_socket, partner_socket):
-    """Relays all incoming bytes from one client directly to the other."""
-    try:
-        while True:
-            data = current_socket.recv(8192) # Larger buffer for video chunks
+CIPHER_KEY = get_cipher_key(PASSWORD)
+
+def relay_data(sender, receiver, cipher):
+    """Relay encrypted data from one client to another."""
+    while True:
+        try:
+            data = sender.recv(4096)
             if not data:
                 break
-            partner_socket.sendall(data)
-    except:
-        pass
-    finally:
-        current_socket.close()
-        print("A client has disconnected.")
+            receiver.sendall(data)
+        except:
+            break
+    sender.close()
+    receiver.close()
 
-def start_server():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((HOST, PORT))
-    server.listen(2)
-    print(f"Server listening on {HOST}:{PORT}...")
+print(f"Server starting on port {PORT}...")
+print(f"Using password: {PASSWORD}")
 
-    while len(clients) < 2:
-        conn, addr = server.accept()
-        print(f"Connected to {addr}")
-        clients.append(conn)
+server = socket.socket()
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind((HOST, PORT))
+server.listen(2)
+print(f"Waiting for 2 clients to connect...")
 
-    print("Both clients connected. Starting bidirectional relay...")
-    
-    # Start two-way relay threads
-    t1 = threading.Thread(target=handle_relay, args=(clients[0], clients[1]), daemon=True)
-    t2 = threading.Thread(target=handle_relay, args=(clients[1], clients[0]), daemon=True)
+# Accept 2 clients
+client1, addr1 = server.accept()
+print(f"Client 1 connected: {addr1}")
 
-    t1.start()
-    t2.start()
+client2, addr2 = server.accept()
+print(f"Client 2 connected: {addr2}")
 
-    # Keep main thread alive
-    t1.join()
-    t2.join()
+print("Both clients connected! Starting relay...")
 
-if __name__ == "__main__":
-    start_server()
+cipher = Fernet(CIPHER_KEY)
+
+# Create relay threads
+thread1 = threading.Thread(target=relay_data, args=(client1, client2, cipher), daemon=True)
+thread2 = threading.Thread(target=relay_data, args=(client2, client1, cipher), daemon=True)
+
+thread1.start()
+thread2.start()
+
+thread1.join()
+thread2.join()
+
+print("Clients disconnected.")
+server.close()
