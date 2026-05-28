@@ -1,62 +1,53 @@
-# Video Chat App (Encrypted + Audio)
+🚀 Zoom Clone (Encrypted Real-Time Communication)
+A lightweight, multi-threaded, and secure real-time video, audio, and chat application built from scratch using Python.
 
-Video chat between 2 PCs with **encryption** and **audio**.
+✨ Features
+🎥 Full-Duplex Communication: Simultaneous video, audio, and text transmission.
 
-## Features
-- ✅ Live video (encrypted)
-- ✅ Text chat (encrypted)
-- ✅ **Audio calls (encrypted)** - NEW!
-- ✅ **AES encryption** - All data encrypted
-- ✅ Same network only
+🔒 E2EE (End-to-End Encryption): All data packets are encrypted using Fernet (AES-128) to ensure privacy.
 
-## Install
+📦 Custom Protocol: Uses a lightweight 5-byte header for efficient packet routing.
 
-```bash
-pip install -r requirements.txt
-sudo apt-get install python3-tk python3-dev portaudio19-dev  # Linux only
-```
+🧵 Multi-threaded: Separate background workers for video, audio, and data handling to keep the UI responsive.
 
-## How to Use
+👥 Cross-Client Compatibility: Supports multiple concurrent clients via a central relay server.
 
-### Change Password (Optional but recommended)
-Edit `server.py` and `gui_client.py`, change:
-```python
-PASSWORD = "secure123"  # Change this!
-```
-Both files must use the same password.
+🏗️ Architecture
+Networking: Implemented using Python's socket library (SOCK_STREAM / TCP).
 
-### Step 1: Run Server
-```bash
+Concurrency: Uses threading to manage multiple clients and simultaneous data streams.
+
+Data Serialization: Custom binary packet framing using struct to handle network stream fragmentation.
+
+Encryption: Symmetric encryption using the cryptography library.
+
+Media Processing: OpenCV for real-time video capture and compression, PyAudio for low-latency voice streaming.
+
+🛠️ Prerequisites
+Python 3.x
+
+Required Libraries:
+
+Bash
+pip install opencv-python pillow pyaudio cryptography numpy
+🚀 How to Run
+1️⃣ Start the Server
+Run the server script to begin listening for incoming connections:
+
+Bash
 python server.py
-```
-Shows: `Using password: secure123`
+2️⃣ Launch the Client
+Open one or more client terminals and run the GUI application:
 
-Get your IP:
-- **Windows:** `ipconfig` → IPv4 Address
-- **Mac/Linux:** `ifconfig` → inet
-
-### Step 2: Run Client on Both PCs
-```bash
+Bash
 python gui_client.py
-```
-Enter server IP when asked.
+When prompted, enter the Server IP address (use 127.0.0.1 for local testing).
 
-### Encryption (AES)
-- Password → SHA256 hash → Encryption key
-- All data encrypted before sending
-- Can't be read by anyone without password
+📋 Technical Details
+Packet Header (5 Bytes):
 
-### Audio
-- Captures from microphone in real-time
-- Compressed and encrypted
-- Plays through speakers
+Byte 1: Message Type (0: Video, 1: Text, 2: Audio)
 
-### Protocol
-```
-[1 byte type] [4 bytes size] [encrypted data]
-```
-Types:
-- 0 = Video frame
-- 1 = Text message
-- 2 = Audio chunk
+Bytes 2-5: Payload Size (Unsigned Long)
 
+Encryption Key: Derives a secure 32-byte key from the hardcoded password using SHA-256 hashing.
