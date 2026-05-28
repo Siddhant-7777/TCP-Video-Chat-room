@@ -5,7 +5,7 @@ Video chat between 2 PCs with **encryption** and **audio**.
 ## Features
 - ✅ Live video (encrypted)
 - ✅ Text chat (encrypted)
-- ✅ **Audio calls (encrypted)** - NEW!
+- ✅ **Audio calls (encrypted)**
 - ✅ **AES encryption** - All data encrypted
 - ✅ Same network only
 
